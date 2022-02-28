@@ -438,9 +438,12 @@ RED.arduino.export = (function () {
     function export_classBased(generateZip) {
 		const useDynMixers = RED.arduino.settings.UseVariableMixers; // set to true to assume that variable-width mixers are built into the Audio library
         var minorIncrement = RED.arduino.settings.CodeIndentations;
+        var exportOSC = RED.arduino.settings.ExportForOSC;
         var majorIncrement = minorIncrement * 2;
 		const acn = getConnectionName();
+		const baseClass = getBaseClass();
         const t0 = performance.now();
+		
         RED.storage.update();
         if (generateZip == undefined) generateZip = false;
 
@@ -596,9 +599,12 @@ RED.arduino.export = (function () {
             if (classComment.length > 0) {
                 newWsCpp.contents += "\n/**\n" + classComment + " */"; // newline not needed because it allready in beginning of class definer (check down)
             }
+			
+			// Create start o class declaration:
             if (newWsCpp.isMain == false) {
-                newWsCpp.contents += "\nclass " + ws.label + " " + ws.extraClassDeclarations +"\n{\npublic:\n";
+                newWsCpp.contents += "\nclass " + ws.label + baseClass+ " " + ws.extraClassDeclarations +"\n{\npublic:\n";
             }
+			
             if (classVars.trim().length > 0) {
                 if (newWsCpp.isMain == false)
                     newWsCpp.contents += incrementTextLines(classVars, minorIncrement);
@@ -606,6 +612,7 @@ RED.arduino.export = (function () {
                     newWsCpp.contents += classVars;
             }
 
+			inits = [];
             if (newWsCpp.isMain == false) // audio processing nodes should not be in the main file
             {
                 // generate code for all audio processing nodes
@@ -626,15 +633,18 @@ RED.arduino.export = (function () {
                     }
 					
 					var typeName = getTypeName(nns, n, useDynMixers);
+					var typeNameOSC = mapTypeName(typeName).trim();
                     newWsCpp.contents += getNrOfSpaces(minorIncrement) + mapTypeName(typeName);
 					typeName = typeName.trim();
                     //console.log(">>>" + n.type +"<<<"); // debug test
                     var name = RED.nodes.make_name(n); 	// variable / class member name
-					name += makeCtor(name,typeName,n);	// add constructor, if needed
+					var ctor = makeCtor(name,typeName,n);	// add constructor, if needed
                     if (n.comment && (n.comment.trim().length != 0))
                         newWsCpp.contents += name + "; /* " + n.comment + "*/\n";
                     else
                         newWsCpp.contents += name + ";\n";
+					
+					inits.push({name: name, ctor: ctor, type: typeName, typeOSC: typeNameOSC})
                 }
             }
             // generate code for all control/standard class nodes (no inputs or outputs)
@@ -760,7 +770,17 @@ RED.arduino.export = (function () {
                 }
 
                 // generate constructor code
-                newWsCpp.contents += "\n" + getNrOfSpaces(minorIncrement) + ws.label + "() { // constructor (this is called when class-object is created)\n";
+                newWsCpp.contents += "\n" + getNrOfSpaces(minorIncrement) + ws.label; 
+				newWsCpp.contents +=  "(const char* _name,OSCAudioGroup* parent) : // constructor \n";
+				for (i=0; i < inits.length; i++)
+				{
+					if (i>0)
+						newWsCpp.contents += ",\n";
+					newWsCpp.contents +=  getNrOfSpaces(minorIncrement);
+					newWsCpp.contents +=  `    ${inits[i].name}(*new ${inits[i].typeOSC}${inits[i].ctor})`;
+				}
+				newWsCpp.contents +=  "\n" + getNrOfSpaces(minorIncrement) + "{\n";
+					
                 if (ac.totalCount != 0)
                     newWsCpp.contents += getNrOfSpaces(majorIncrement) + "int pci = 0; // used only for adding new patchcords\n\n"
 
@@ -1027,6 +1047,7 @@ RED.arduino.export = (function () {
 		if (RED.arduino.settings.ExportForOSC && name.search("Audio") >= 0)
 		{
 			name = name.replace("Audio","OSCAudio");
+			name = name.replace(/([^ ]) /,"$1&");
 			name = name.slice(0,name.length-3); // remove 3 trailing spaces, because we added "OSC"
 		}
 		
@@ -1034,8 +1055,21 @@ RED.arduino.export = (function () {
 	 }
 	 
     /**
+     * Create base class if we're wanting to export OSCAudio objects
+     */
+     function getBaseClass() 
+	 {
+		var result = "";
+		if (RED.arduino.settings.ExportForOSC)
+		{
+			result = " : public OSCAudioBase";
+		}
+		
+		return result;
+	 }
+	 
+	  /**
      * Convert type name if we're wanting to export OSCAudio objects
-     * @param type name
      */
      function getConnectionName() 
 	 {
@@ -1061,6 +1095,7 @@ RED.arduino.export = (function () {
 		
 		if (RED.arduino.settings.ExportForOSC)
 			ctor.push('"' + name + '"');
+		ctor.push("*this");
 		if (DynAudioMixers.includes(typeName))
 			ctor.push(getDynamicInputCount(n,true).toString());
 		if (ctor.length > 0)
