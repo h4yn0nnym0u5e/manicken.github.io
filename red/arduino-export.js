@@ -105,13 +105,22 @@ RED.arduino.export = (function () {
             ifAnyIsArray: function () {
                 return (this.dstRootIsArray || this.srcRootIsArray);
             },
+			makeOSCname: function (n) {
+				var result = this.srcName + '_' + this.srcPort + '_' + this.dstName + '_' + this.dstPort;
+				result.replace("[","${").replace("]","}").replace(".","_")
+				return result;
+			},
+			makeOSCnameQC: function (n) {
+				return '"' + this.makeOSCname(n) + '", ';
+			},
+			
             appendToCppCode: function () {
                 //if ((this.srcPort == 0) && (this.dstPort == 0))
                 //	this.cppCode	+= "\n" + this.base + this.count + "(" + this.srcName + ", " + this.dstName + ");"; // this could be used but it's generating code that looks more blurry
 
                 if (this.dstRootIsArray && this.srcRootIsArray && this.staticType == true) {
                     for (var i = 0; i < this.arrayLength; i++) {
-                        this.cppCode += this.base() + this.srcName.replace('[i]', '[' + i + ']') + ", " + this.srcPort + ", " + this.dstName.replace('[i]', '[' + i + ']') + ", " + this.dstPort + ");";
+                        this.cppCode += this.base() + this.makeOSCnameQC(i) + this.srcName.replace('[i]', '[' + i + ']') + ", " + this.srcPort + ", " + this.dstName.replace('[i]', '[' + i + ']') + ", " + this.dstPort + ");";
                         if (this.srcIsClass || this.dstIsClass) this.cppCode += warningClassUse;
                         this.cppCode += "\n";
                         this.count++;
@@ -119,12 +128,12 @@ RED.arduino.export = (function () {
                 }
                 else if (this.dstRootIsArray) {
                     if (this.staticType==false) {
-                        this.cppCode += this.base() + this.srcName + ", " + this.srcPort + ", " + this.dstName + ", " + this.dstPort + ");";
+                        this.cppCode += this.base() + this.makeOSCnameQC(-1) + this.srcName + ", " + this.srcPort + ", " + this.dstName + ", " + this.dstPort + ");";
                         this.cppCode += "\n";
                     }
                     else {
                         for (var i = 0; i < this.arrayLength; i++) {
-                            this.cppCode += this.base() + this.srcName + ", " + this.srcPort + ", " + this.dstName.replace('[i]', '[' + i + ']') + ", " + this.dstPort + ");";
+                            this.cppCode += this.base() + this.makeOSCnameQC(i) + this.srcName + ", " + this.srcPort + ", " + this.dstName.replace('[i]', '[' + i + ']') + ", " + this.dstPort + ");";
                             if (this.srcIsClass || this.dstIsClass) this.cppCode += warningClassUse;
                             this.cppCode += "\n";
                             this.count++;
@@ -135,12 +144,12 @@ RED.arduino.export = (function () {
                 }
                 else if (this.srcRootIsArray) {
                     if (this.staticType==false) {
-                        this.cppCode += this.base() + this.srcName + ", " + this.srcPort + ", " + this.dstName + ", i"+(this.dstPort>0?("+"+this.dstPort):"")+");";
+                        this.cppCode += this.base() + this.makeOSCnameQC(-1) + this.srcName + ", " + this.srcPort + ", " + this.dstName + ", i"+(this.dstPort>0?("+"+this.dstPort):"")+");";
                         this.cppCode += "\n";
                     }
                     else {
                         for (var i = 0; i < this.arrayLength; i++) {
-                            this.cppCode += this.base() + this.srcName.replace('[i]', '[' + i + ']') + ", " + this.srcPort + ", " + this.dstName + ", "+i+");";
+                            this.cppCode += this.base() + this.makeOSCnameQC(i) + this.srcName.replace('[i]', '[' + i + ']') + ", " + this.srcPort + ", " + this.dstName + ", "+i+");";
                             if (this.srcIsClass || this.dstIsClass) this.cppCode += warningClassUse;
                             this.cppCode += "\n";
                             this.count++;
@@ -149,7 +158,9 @@ RED.arduino.export = (function () {
                     this.totalCount += this.arrayLength;
                 }
                 else {
-                    this.cppCode += this.base() + this.srcName + ", " + this.srcPort + ", " + this.dstName + ", " + this.dstPort + ");";
+                    this.cppCode += this.base();
+					this.cppCode += this.makeOSCnameQC(-1);
+					this.cppCode += this.srcName + ", " + this.srcPort + ", " + this.dstName + ", " + this.dstPort + ");";
                     if (this.staticType == true && (this.srcIsClass || this.dstIsClass)) this.cppCode += warningClassUse;
                     this.cppCode += "\n";
                     this.count++;
