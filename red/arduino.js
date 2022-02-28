@@ -23,6 +23,7 @@ RED.arduino = (function() {
         ZipExportCompress: true,
         UseAudioMixerTemplate: false,
 		UseVariableMixers: true,
+		ExportForOSC: false,
         useExportDialog: false,
 		IOcheckAtExport: true,
 		WriteJSONtoExportedFile: true,
@@ -46,6 +47,7 @@ RED.arduino = (function() {
         ZipExportCompress:defSettings.ZipExportCompress,
         UseAudioMixerTemplate: defSettings.UseAudioMixerTemplate,
 		UseVariableMixers: defSettings.UseVariableMixers,
+		ExportForOSC: defSettings.ExportForOSC,
 		useExportDialog: defSettings.useExportDialog,
 		IOcheckAtExport: defSettings.IOcheckAtExport,
 		WriteJSONtoExportedFile: defSettings.WriteJSONtoExportedFile,
@@ -88,6 +90,9 @@ RED.arduino = (function() {
 
         get UseVariableMixers() { return _settings.UseVariableMixers; },
 		set UseVariableMixers(state) { _settings.UseVariableMixers = state; RED.storage.update();},
+
+        get ExportForOSC() { return _settings.ExportForOSC; },
+		set ExportForOSC(state) { _settings.ExportForOSC = state; RED.storage.update();},
 
         get ZipExportUseSubFolder() { return _settings.ZipExportUseSubFolder; },
 		set ZipExportUseSubFolder(state) { _settings.ZipExportUseSubFolder = state; RED.storage.update();},
@@ -165,6 +170,7 @@ RED.arduino = (function() {
                     items: {
                         UseAudioMixerTemplate:   { label:"Use C++ Template Mixer (obsolete)", type:"boolean", popupText: "This functionality is now obsolete<br>as the Tool now generates the needed code for the different mixer variants.<br>The template based mixer had some issues and sometimes did not work."},
                         UseVariableMixers:   	 { label:"Use built in variable-width mixers", type:"boolean", popupText: "Assume Audio library provides<br>variable-width mono<br>and stereo mixers"},
+                        ExportForOSC:   	 	 { label:"Export using OSC-aware audio classes", type:"boolean", popupText: "Use OSCAudio variants to allow control<br>by Open Sound Control messages"},
                         useExportDialog:         { label:"Force Show export dialog", type:"boolean"},
                         IOcheckAtExport:         { label:"IO check At Export", type:"boolean"},
                         WriteJSONtoExportedFile: { label:"Write JSON at exported file", type:"boolean"},

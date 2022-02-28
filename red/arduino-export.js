@@ -80,12 +80,13 @@ RED.arduino.export = (function () {
             staticType:staticType,
             workspaceId: workspaceId,
             base: function() {
-                if (this.staticType==true) return "AudioConnection        patchCord"+this.count + "(";
+				const acn = getConnectionName();
+                if (this.staticType==true) return acn + "        patchCord"+this.count + "(";
                 else {
                     if (this.dstRootIsArray || this.srcRootIsArray)
-                        return getNrOfSpaces(majorIncrement+minorIncrement) + "patchCord[pci++] = new AudioConnection(";
+                        return getNrOfSpaces(majorIncrement+minorIncrement) + "patchCord[pci++] = new " + acn + "(";
                     else
-                        return getNrOfSpaces(majorIncrement) + "patchCord[pci++] = new AudioConnection(";
+                        return getNrOfSpaces(majorIncrement) + "patchCord[pci++] = new " + acn + "(";
                 }
             },
             
@@ -216,7 +217,7 @@ RED.arduino.export = (function () {
     });
     function export_simple() {
 
-		var useDynMixers = RED.arduino.settings.UseVariableMixers; // set to true to assume that variable-width mixers are built into the Audio library
+		const useDynMixers = RED.arduino.settings.UseVariableMixers; // set to true to assume that variable-width mixers are built into the Audio library
         var minorIncrement = RED.arduino.settings.CodeIndentations;
         var majorIncrement = minorIncrement * 2;
 
@@ -289,9 +290,10 @@ RED.arduino.export = (function () {
                 // generate code for audio processing node instance
                 if (node._def.isClass != undefined)//RED.nodes.isClass(n.type))
                     cppAPN += warningClassUse + "\n";
-                cppAPN += getTypeName(nns, n, useDynMixers);
-                var name = RED.nodes.make_name(n)
-                cppAPN += name + "; ";
+				var typeName = getTypeName(nns, n, useDynMixers);
+                cppAPN += mapTypeName(typeName);
+                var name = RED.nodes.make_name(n);
+                cppAPN += name + makeCtor(name,typeName,n) + "; ";
                 for (var j = n.id.length; j < 14; j++) cppAPN += " ";
                 cppAPN += "//xy=" + n.x + "," + n.y + "\n";
 
@@ -423,9 +425,10 @@ RED.arduino.export = (function () {
         showIOcheckWarning(function() {export_classBased(true);});
     });
     function export_classBased(generateZip) {
-		var useDynMixers = RED.arduino.settings.UseVariableMixers; // set to true to assume that variable-width mixers are built into the Audio library
+		const useDynMixers = RED.arduino.settings.UseVariableMixers; // set to true to assume that variable-width mixers are built into the Audio library
         var minorIncrement = RED.arduino.settings.CodeIndentations;
         var majorIncrement = minorIncrement * 2;
+		const acn = getConnectionName();
         const t0 = performance.now();
         RED.storage.update();
         if (generateZip == undefined) generateZip = false;
@@ -612,13 +615,11 @@ RED.arduino.export = (function () {
                     }
 					
 					var typeName = getTypeName(nns, n, useDynMixers);
-                    newWsCpp.contents += getNrOfSpaces(minorIncrement) + typeName;
+                    newWsCpp.contents += getNrOfSpaces(minorIncrement) + mapTypeName(typeName);
 					typeName = typeName.trim();
                     //console.log(">>>" + n.type +"<<<"); // debug test
-                    var name = RED.nodes.make_name(n)
-					if (DynAudioMixers.includes(typeName))
-						name += "{" + getDynamicInputCount(n,true).toString() + "}";
-
+                    var name = RED.nodes.make_name(n); 	// variable / class member name
+					name += makeCtor(name,typeName,n);	// add constructor, if needed
                     if (n.comment && (n.comment.trim().length != 0))
                         newWsCpp.contents += name + "; /* " + n.comment + "*/\n";
                     else
@@ -736,8 +737,8 @@ RED.arduino.export = (function () {
                     });
                 }
                 if (ac.totalCount != 0) {
-                    newWsCpp.contents += getNrOfSpaces(minorIncrement) + "AudioConnection ";
-                    newWsCpp.contents += getNrOfSpaces(32 - "AudioConnection".length);
+                    newWsCpp.contents += getNrOfSpaces(minorIncrement) + acn + " ";
+                    newWsCpp.contents += getNrOfSpaces(32 - acn.length);
                     newWsCpp.contents += "*patchCord[" + ac.totalCount + "]; // total patchCordCount:" + ac.totalCount + " including array typed ones.\n";
                 }
                 for (var ani = 0; ani < arrayNodes.length; ani++) {
@@ -1005,7 +1006,57 @@ RED.arduino.export = (function () {
         for (var j = typeLength; j < 32; j++) cpp += " ";
         return cpp;
     }
-
+	
+    /**
+     * Convert type name if we're wanting to export OSCAudio objects
+     * @param type name
+     */
+     function mapTypeName(name) 
+	 {
+		if (RED.arduino.settings.ExportForOSC && name.search("Audio") >= 0)
+		{
+			name = name.replace("Audio","OSCAudio");
+			name = name.slice(0,name.length-3); // remove 3 trailing spaces, because we added "OSC"
+		}
+		
+		return name;
+	 }
+	 
+    /**
+     * Convert type name if we're wanting to export OSCAudio objects
+     * @param type name
+     */
+     function getConnectionName() 
+	 {
+		var name = "AudioConnection";
+		if (RED.arduino.settings.ExportForOSC && name.search("Audio") >= 0)
+		{
+			name = name.replace("Audio","OSCAudio");
+		}
+		
+		return name;
+	 }
+	 
+    /**
+     * Create required constructor, if any
+     * @param name object name
+     * @param typeName type name
+     * @param n index into nodes
+     */
+	 function makeCtor(name,typeName,n)
+	 {
+		var result = "";
+		var ctor = [];
+		
+		if (RED.arduino.settings.ExportForOSC)
+			ctor.push('"' + name + '"');
+		if (DynAudioMixers.includes(typeName))
+			ctor.push(getDynamicInputCount(n,true).toString());
+		if (ctor.length > 0)
+			result += "{" + ctor.join() + "}";
+		
+		return result;
+	 }
     /*$("#node-input-export2").val("second text").focus(function() { // this can be used for additional setup loop code in future
             // future is now and with direct communication to from arduino ide this is no longer needed.
             var textarea = $(this);
