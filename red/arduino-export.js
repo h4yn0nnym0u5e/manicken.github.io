@@ -759,7 +759,10 @@ RED.arduino.export = (function () {
                                 ac.appendToCppCode(); // this don't return anything, the result is in ac.cppCode
                             }
                             if (ac.ifAnyIsArray())
+							{
+								addPortToInits(inits,ac);
                                 cppArray += ac.cppCode;
+							}
                             else
                                 cppPcs += ac.cppCode;
                         }
@@ -812,7 +815,7 @@ RED.arduino.export = (function () {
 						newWsCpp.contents += indent + `  ${inits[i].isArray.name}[i] = new ${inits[i].type};\n`;
 						var wires = busses[inits[i].id].wires[0];
 						for (wire of wires)
-							newWsCpp.contents += indent + `  patchCord[pci++] = new ${acn}{${inits[i].isArray.name}[i],,${nns[idMap[wire[0]]].name},i+${wire[2]}};\n`;
+							newWsCpp.contents += indent + `  patchCord[pci++] = new ${acn}{${inits[i].isArray.name}[i].${inits[i].src.obj},${inits[i].src.port},${nns[idMap[wire[0]]].name},i+${wire[2]}};\n`;
 						newWsCpp.contents += indent + '}\n';
 					}
 				}
@@ -1200,6 +1203,19 @@ RED.arduino.export = (function () {
 		 }
 		 
 		 return result;
+	 }
+	 
+	 function addPortToInits(inits,ac)
+	 {
+		 var src = ac.srcName.split(".");
+		 src[0] = src[0].replace("[i]","["+ac.arrayLength+"]");
+		 
+		 for (i=0;i<inits.length;i++)
+			 if (inits[i].name == src[0])
+			 {
+				 inits[i].src = {obj: src[1], port: ac.srcPort};
+				 break;
+			 }
 	 }
 	 
 	 function id2index(nodeArray)
