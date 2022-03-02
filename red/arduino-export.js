@@ -450,7 +450,10 @@ RED.arduino.export = (function () {
 		var useExportDialog = (RED.arduino.settings.useExportDialog || !RED.arduino.serverIsActive() && (generateZip == undefined))
 
         var nns = RED.nodes.createCompleteNodeSet({newVer:false});
-        // sort is made inside createCompleteNodeSet
+    	const busses = scanBusses(nns);
+		const idMap = id2index(nns);
+		
+	    // sort is made inside createCompleteNodeSet
 
         var tabNodes = RED.nodes.getClassIOportsSorted(undefined,nns);
 
@@ -600,7 +603,7 @@ RED.arduino.export = (function () {
                 newWsCpp.contents += "\n/**\n" + classComment + " */"; // newline not needed because it allready in beginning of class definer (check down)
             }
 			
-			// Create start o class declaration:
+			// Create start of class declaration:
             if (newWsCpp.isMain == false) {
                 newWsCpp.contents += "\nclass " + ws.label + baseClass+ " " + ws.extraClassDeclarations +"\n{\npublic:\n";
             }
@@ -641,10 +644,15 @@ RED.arduino.export = (function () {
 					var ctor = makeCtor(name,typeName,n);	// add constructor, if needed
                     if (n.comment && (n.comment.trim().length != 0))
                         newWsCpp.contents += name + "; /* " + n.comment + "*/\n";
-                    else
+                    else if (isArray)
+                        newWsCpp.contents += "*" + name + ";\n";
+                    else 
                         newWsCpp.contents += name + ";\n";
 					
-					inits.push({name: name, ctor: ctor, type: typeName, typeOSC: typeNameOSC})
+					inits.push({idx: i, id: n.id, name: name, ctor: ctor, type: typeName, 
+								typeOSC: typeNameOSC.replace("&",""),
+								isArray: isArray
+								})
                 }
             }
             // generate code for all control/standard class nodes (no inputs or outputs)
@@ -772,21 +780,45 @@ RED.arduino.export = (function () {
                 // generate constructor code
                 newWsCpp.contents += "\n" + getNrOfSpaces(minorIncrement) + ws.label; 
 				newWsCpp.contents +=  "(const char* _name,OSCAudioGroup* parent) : // constructor \n";
+				// initialisers
+				var firstInit = true;
 				for (i=0; i < inits.length; i++)
 				{
-					if (i>0)
-						newWsCpp.contents += ",\n";
-					newWsCpp.contents +=  getNrOfSpaces(minorIncrement);
-					newWsCpp.contents +=  `    ${inits[i].name}(*new ${inits[i].typeOSC}${inits[i].ctor})`;
+					if (!inits[i].isArray)
+					{
+						if (!firstInit)
+						{
+							newWsCpp.contents += ",\n";
+						}
+						else
+							firstInit = false;
+						newWsCpp.contents +=  getNrOfSpaces(minorIncrement);
+						newWsCpp.contents +=  `    ${inits[i].name}(*new ${inits[i].typeOSC}${inits[i].ctor})`;
+					}
 				}
 				newWsCpp.contents +=  "\n" + getNrOfSpaces(minorIncrement) + "{\n";
-					
+				
+				// constructor code:
+				var indent = getNrOfSpaces(majorIncrement);
                 if (ac.totalCount != 0)
-                    newWsCpp.contents += getNrOfSpaces(majorIncrement) + "int pci = 0; // used only for adding new patchcords\n\n"
-
+                    newWsCpp.contents += indent + "int pci = 0; // used only for adding new patchcords\n\n"
+				
+				for (i=0; i < inits.length; i++)
+				{
+					if (inits[i].isArray)
+					{
+						newWsCpp.contents += indent + `for (int i=0;i<${inits[i].isArray.arrayLength};i++)\n`;
+						newWsCpp.contents += indent + '{\n';
+						newWsCpp.contents += indent + `  ${inits[i].isArray.name}[i] = new ${inits[i].type};\n`;
+						var wires = busses[inits[i].id].wires[0];
+						for (wire of wires)
+							newWsCpp.contents += indent + `  patchCord[pci++] = new ${acn}{${inits[i].isArray.name}[i],,${nns[idMap[wire[0]]].name},i+${wire[2]}};\n`;
+						newWsCpp.contents += indent + '}\n';
+					}
+				}
                 for (var ani = 0; ani < arrayNodes.length; ani++) {
                     var arrayNode = arrayNodes[ani];
-                    newWsCpp.contents += getNrOfSpaces(majorIncrement) + arrayNode.name + " = new " + arrayNode.type + "[" + arrayNode.objectCount + "]";
+                    newWsCpp.contents += indent + arrayNode.name + " = new " + arrayNode.type + "[" + arrayNode.objectCount + "]";
                     if (arrayNode.autoGenerate)
                         newWsCpp.contents += "{" + arrayNode.cppCode.substring(0, arrayNode.cppCode.length - 1) + "}"
                     else
@@ -796,11 +828,15 @@ RED.arduino.export = (function () {
                 }
                 newWsCpp.contents += "\n";
                 newWsCpp.contents += cppPcs;
-                if (ac.arrayLength != 0) {
+				
+				// disable this for now, it's not working too well!
+                if (false && ac.arrayLength != 0) {
                     newWsCpp.contents += getNrOfSpaces(majorIncrement) + "for (int i = 0; i < " + ac.arrayLength + "; i++) {\n";
                     newWsCpp.contents += cppArray;
                     newWsCpp.contents += getNrOfSpaces(majorIncrement) + "}\n";
                 }
+				
+				// end of constructor
                 newWsCpp.contents += incrementTextLines(classConstructorCode, majorIncrement);
                 newWsCpp.contents += getNrOfSpaces(minorIncrement) + "}\n";
 
@@ -986,7 +1022,7 @@ RED.arduino.export = (function () {
     // the mixer will then expand to meet the requirements
 
     function getDynamicInputCount(n, replaceConstWithValue) { // rename to getDynamicInputCount?
-        // check if source is a array
+        // check if source is an array
         n = RED.nodes.node(n.id, n.z);
         return RED.export.links.getDynInputDynSizePortStartIndex(n, undefined);
 
@@ -1044,8 +1080,14 @@ RED.arduino.export = (function () {
      */
      function mapTypeName(name) 
 	 {
-		if (RED.arduino.settings.ExportForOSC && name.search("Audio") >= 0)
-		{
+		var kys = Object.keys(NodeDefinitions.officialNodes.types);
+		if (RED.arduino.settings.UseVariableMixers)
+			kys = kys.concat(DynAudioMixers);
+			 
+		if (RED.arduino.settings.ExportForOSC && kys.includes(name.trim()))
+		{	
+			
+			
 			name = name.replace("Audio","OSCAudio");
 			name = name.replace(/([^ ]) /,"$1&");
 			name = name.slice(0,name.length-3); // remove 3 trailing spaces, because we added "OSC"
@@ -1062,7 +1104,7 @@ RED.arduino.export = (function () {
 		var result = "";
 		if (RED.arduino.settings.ExportForOSC)
 		{
-			result = " : public OSCAudioBase";
+			result = " : public OSCAudioGroup";
 		}
 		
 		return result;
@@ -1103,6 +1145,73 @@ RED.arduino.export = (function () {
 		
 		return result;
 	 }
+	 
+	 function scanBusses(nodeArray)
+	 {
+		 var result = {};
+		 var dsts = {};
+		 
+		 for (i=0;i<nodeArray.length;i++)
+		 {
+			var na = nodeArray[i];
+						
+			if (na.isClass && /\[[0-9]+\]/.test(na.name))
+			{
+				var sz = /\[([0-9]+)\]/.exec(na.name);
+				sz = sz[1];
+				var nm = na.name.slice(0,-sz.length-2);
+				var wir = Array();
+				for (j=0;j<na.wires.length;j++)
+					for (k=0;k<na.wires[j].length;k++)
+					{
+						var s = na.wires[j][k];
+						if (!(j in wir))
+							wir[j] = Array();
+					
+						wir[j][k] = s.split(":");
+						if (!(wir[j][k][0] in dsts))
+							dsts[wir[j][k][0]] = {};
+						dsts[wir[j][k][0]][wir[j][k][1]] = na.id;
+					}
+				result[na.id] = {name: nm, size: parseInt(sz), wires: wir};
+			}
+		 }
+		 
+		 for (mixID in dsts)
+		 {
+			 var port = 0; // how far we've got down the physical ports...
+			 var lprt = 0; // ...and the logical ports
+			 var portList = Object.keys(dsts[mixID]).sort();
+			 for (lp of portList)
+			 {
+				var logPort = parseInt(lp);
+				if (logPort != lprt) // some ports skipped, not bus ports
+					port += logPort - lprt;
+				lprt = logPort+1; // next expected
+				
+				var dst = result[dsts[mixID][logPort]];
+				for (wir of Object.keys(dst.wires[0]))
+					if (dst.wires[0][wir][0] == mixID && dst.wires[0][wir][1] == lp)
+						dst.wires[0][wir][2] = port;
+				//["physPort"] = port; // say where first connection really is
+				port += result[dsts[mixID][logPort]].size;
+			 }
+			 
+		 }
+		 
+		 return result;
+	 }
+	 
+	 function id2index(nodeArray)
+	 {
+		 var result = {};
+		 
+		 for (i=0;i<nodeArray.length;i++)
+			 result[nodeArray[i].id] = i;
+		 
+		 return result;
+	 }
+	 
     /*$("#node-input-export2").val("second text").focus(function() { // this can be used for additional setup loop code in future
             // future is now and with direct communication to from arduino ide this is no longer needed.
             var textarea = $(this);
