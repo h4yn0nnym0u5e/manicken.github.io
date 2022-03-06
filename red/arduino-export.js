@@ -651,7 +651,8 @@ RED.arduino.export = (function () {
 					
 					inits.push({idx: i, id: n.id, name: name, ctor: ctor, type: typeName, 
 								typeOSC: typeNameOSC.replace("&",""),
-								isArray: isArray
+								isArray: isArray,
+								outputs: []
 								})
                 }
             }
@@ -691,10 +692,12 @@ RED.arduino.export = (function () {
                     if (n.type.startsWith("Junction")) continue;
 
                     var src = RED.nodes.node(n.id, n.z);
+					var outPort = -1;
+					ac.srcName = "";
 
                     RED.nodes.eachWire(n, function (pi, dstId, dstPortIndex) {
-
-                        
+						var oldSrcName = ac.srcName;
+						
                         var dst = RED.nodes.node(dstId);
 
                         if (src.type == "TabInput" || dst.type == "TabOutput") return; // now with JSON string at top, place-holders not needed anymore
@@ -710,7 +713,7 @@ RED.arduino.export = (function () {
                                 dst = dstNodes.nodes[dni].node;
                                 ac.cppCode = "";
                                 ac.srcName = RED.nodes.make_name(src);
-                                ac.dstName = RED.nodes.make_name(dst);
+								ac.dstName = RED.nodes.make_name(dst);
                                 ac.srcPort = pi;
                                 ac.dstPort = dstNodes.nodes[dni].dstPortIndex;
 
@@ -727,6 +730,15 @@ RED.arduino.export = (function () {
                                 } else {
                                     ac.appendToCppCode(); // this don't return anything, the result is in ac.cppCode
                                 }
+								
+								// try to figure out tab port number:
+								if (oldSrcName != ac.srcName)
+								{
+									outPort++;
+									oldSrcName = ac.srcName;
+								}
+								ac.outPort = outPort;
+							
                                 if (ac.ifAnyIsArray())
                                     cppArray += ac.cppCode;
                                 else
@@ -739,7 +751,7 @@ RED.arduino.export = (function () {
                             ac.dstName = RED.nodes.make_name(dst);
                             ac.srcPort = pi;
                             ac.dstPort = dstPortIndex; // default
-
+                                
                             ac.checkIfSrcIsArray(); // we ignore the return value, there is no really use for it
                             if (src._def.isClass != undefined) { //RED.nodes.isClass(n.type)) { // if source is class
                                 //console.log("root src is class:" + ac.srcName);
@@ -758,6 +770,15 @@ RED.arduino.export = (function () {
                                 }
                                 ac.appendToCppCode(); // this don't return anything, the result is in ac.cppCode
                             }
+							
+							// try to figure out tab port number:
+							if (oldSrcName != ac.srcName)
+							{
+								outPort++;
+								oldSrcName = ac.srcName;
+							}
+							ac.outPort = outPort;
+							
                             if (ac.ifAnyIsArray())
 							{
 								addPortToInits(inits,ac);
@@ -813,9 +834,13 @@ RED.arduino.export = (function () {
 						newWsCpp.contents += indent + `for (int i=0;i<${inits[i].isArray.arrayLength};i++)\n`;
 						newWsCpp.contents += indent + '{\n';
 						newWsCpp.contents += indent + `  ${inits[i].isArray.name}[i] = new ${inits[i].type};\n`;
-						var wires = busses[inits[i].id].wires[0];
-						for (wire of wires)
-							newWsCpp.contents += indent + `  patchCord[pci++] = new ${acn}{${inits[i].isArray.name}[i].${inits[i].src.obj},${inits[i].src.port},${nns[idMap[wire[0]]].name},i+${wire[2]}};\n`;
+						for (opn=0;opn < busses[inits[i].id].outputs.length;opn++)
+						{
+							output = busses[inits[i].id].outputs[opn]; // {dstID,logPort,physPort}
+							for (wire of output)
+							//for (src of inits[i].src)
+								newWsCpp.contents += indent + `  patchCord[pci++] = new ${acn}{${inits[i].isArray.name}[i].${inits[i].outputs[opn].src},${inits[i].outputs[opn].srcPort},${nns[idMap[wire[0]]].name},i+${wire[2]}};\n`;
+						}
 						newWsCpp.contents += indent + '}\n';
 					}
 				}
@@ -1176,7 +1201,7 @@ RED.arduino.export = (function () {
 							dsts[wir[j][k][0]] = {};
 						dsts[wir[j][k][0]][wir[j][k][1]] = na.id;
 					}
-				result[na.id] = {name: nm, size: parseInt(sz), wires: wir};
+				result[na.id] = {name: nm, size: parseInt(sz), outputs: wir};
 			}
 		 }
 		 
@@ -1193,9 +1218,10 @@ RED.arduino.export = (function () {
 				lprt = logPort+1; // next expected
 				
 				var dst = result[dsts[mixID][logPort]];
-				for (wir of Object.keys(dst.wires[0]))
-					if (dst.wires[0][wir][0] == mixID && dst.wires[0][wir][1] == lp)
-						dst.wires[0][wir][2] = port;
+				for (wi of Object.keys(dst.outputs))
+					for (wir of Object.keys(dst.outputs[wi]))
+						if (dst.outputs[wi][wir][0] == mixID && dst.outputs[wi][wir][1] == lp)
+							dst.outputs[wi][wir][2] = port;
 				//["physPort"] = port; // say where first connection really is
 				port += result[dsts[mixID][logPort]].size;
 			 }
@@ -1213,7 +1239,7 @@ RED.arduino.export = (function () {
 		 for (i=0;i<inits.length;i++)
 			 if (inits[i].name == src[0])
 			 {
-				 inits[i].src = {obj: src[1], port: ac.srcPort};
+				 inits[i].outputs[ac.outPort] = {src: src[1], srcPort: ac.srcPort, dst: ac.dstName, dstPort: ac.dstPort};
 				 break;
 			 }
 	 }
