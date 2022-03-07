@@ -535,8 +535,10 @@ RED.arduino.export = (function () {
             }
             else {
                 newWsCpp = getNewWsCppFile(ws.label + ".h", "");
+				newWsCpp.className = ws.label;
                 keywords.push({token:ws.label, type:"KEYWORD2"});
             }
+			newWsCpp.depends = [];
             // first go through special types
             var classComment = "";
             var classConstructorCode = "";
@@ -634,6 +636,9 @@ RED.arduino.export = (function () {
                     if (isArray) {
                         n.name = isArray.newName;
                     }
+					
+					if (n.isClass) // keep track of class dependencies so we can export in valid order
+						newWsCpp.depends.push(n.type);
 					
 					var typeName = getTypeName(nns, n, useDynMixers);
 					var typeNameOSC = mapTypeName(typeName).trim();
@@ -923,27 +928,52 @@ RED.arduino.export = (function () {
                 }
         } // workspaces loop
         console.error("@export as class RED.arduino.serverIsActive=" + RED.arduino.serverIsActive());
+		
         // time to generate the final result
         var cpp = "";
+		var exported = [];
         if (useExportDialog)
             cpp = getCppHeader(jsonString, undefined, false);//, codeFileIncludes.join("\n"));
-        for (var i = 0; i < wsCppFiles.length; i++) {
-            // don't include beautified json string here
-            // and only append to cpp when useExportDialog
-            if (isCodeFile(wsCppFiles[i].name) && useExportDialog) {
-                if (wsCppFiles[i].name == "mixers.cpp") { // special case
-                    cpp += wsCppFiles[i].contents.replace('#include "mixers.h"', '') + "\n"; // don't use that here as it generates compiler error
-                }
-                else if (wsCppFiles[i].name == "mixers.h") // special case
-                    cpp += wsCppFiles[i].header + "\n" + wsCppFiles[i].contents + "\n"; // to include the copyright note
-                else
-                    cpp += wsCppFiles[i].contents;
-            }
+		var exportComplete = true;
+		do
+		{
+			exportComplete = true;
+			for (var i = 0; i < wsCppFiles.length; i++) 
+			{
+				// don't include beautified json string here
+				// and only append to cpp when useExportDialog
+				if (!wsCppFiles[i].isExported && isCodeFile(wsCppFiles[i].name) && useExportDialog) 
+				{
+					// check that anything we depend on has already been output
+					var skip = false;
+					for (depend of wsCppFiles[i].depends)
+						if (!exported.includes(depend))
+						{
+							exportComplete = false;
+							skip = true;
+							break;
+						}
+					if (skip)
+						continue;
+					
+					if (wsCppFiles[i].name == "mixers.cpp") { // special case
+						cpp += wsCppFiles[i].contents.replace('#include "mixers.h"', '') + "\n"; // don't use that here as it generates compiler error
+					}
+					else if (wsCppFiles[i].name == "mixers.h") // special case
+						cpp += wsCppFiles[i].header + "\n" + wsCppFiles[i].contents + "\n"; // to include the copyright note
+					else
+						cpp += wsCppFiles[i].contents;
+				}
 
-            wsCppFiles[i].contents = wsCppFiles[i].header + wsCppFiles[i].contents + wsCppFiles[i].footer;
-            delete wsCppFiles[i].header;
-            delete wsCppFiles[i].footer;
-        }
+				wsCppFiles[i].contents = wsCppFiles[i].header + wsCppFiles[i].contents + wsCppFiles[i].footer;
+				wsCppFiles[i].header = "";
+				wsCppFiles[i].footer = "";
+				wsCppFiles[i].isExported = true;
+				if (wsCppFiles[i].className)
+					exported.push(wsCppFiles[i].className);
+			}
+		} while (!exportComplete);
+		
         cpp += getCppFooter();
         //console.log(cpp);
 
