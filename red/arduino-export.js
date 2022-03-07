@@ -804,6 +804,7 @@ RED.arduino.export = (function () {
                 // generate constructor code
                 newWsCpp.contents += "\n" + getNrOfSpaces(minorIncrement) + ws.label; 
 				newWsCpp.contents +=  "(const char* _name,OSCAudioGroup* parent) : // constructor \n";
+				newWsCpp.contents +=  getNrOfSpaces(minorIncrement) + "    OSCAudioGroup(_name,parent),\n";
 				// initialisers
 				var firstInit = true;
 				for (i=0; i < inits.length; i++)
@@ -824,6 +825,7 @@ RED.arduino.export = (function () {
 				
 				// constructor code:
 				var indent = getNrOfSpaces(majorIncrement);
+				var grpStr = 'this';
                 if (ac.totalCount != 0)
                     newWsCpp.contents += indent + "int pci = 0; // used only for adding new patchcords\n\n"
 				
@@ -831,15 +833,21 @@ RED.arduino.export = (function () {
 				{
 					if (inits[i].isArray)
 					{
-						newWsCpp.contents += indent + `for (int i=0;i<${inits[i].isArray.arrayLength};i++)\n`;
+						var maxConnName = getMaxConnName(inits[i],busses[inits[i].id]);
+						newWsCpp.contents += indent + `for (uint8_t i=0;i<${inits[i].isArray.arrayLength};i++)\n`;
 						newWsCpp.contents += indent + '{\n';
-						newWsCpp.contents += indent + `  ${inits[i].isArray.name}[i] = new ${inits[i].type};\n`;
+						newWsCpp.contents += indent + `  char buf[${maxConnName}];\n\n`;
+						newWsCpp.contents += indent + `  sprintf(buf,"${inits[i].isArray.name}_%d",i);\n`;
+						newWsCpp.contents += indent + `  ${inits[i].isArray.name}[i] = new ${inits[i].type}(&buf[0], ${grpStr});\n`;
 						for (opn=0;opn < busses[inits[i].id].outputs.length;opn++)
 						{
 							output = busses[inits[i].id].outputs[opn]; // {dstID,logPort,physPort}
 							for (wire of output)
+							{
 							//for (src of inits[i].src)
-								newWsCpp.contents += indent + `  patchCord[pci++] = new ${acn}{${inits[i].isArray.name}[i].${inits[i].outputs[opn].src},${inits[i].outputs[opn].srcPort},${nns[idMap[wire[0]]].name},i+${wire[2]}};\n`;
+								newWsCpp.contents += "\n" + indent + `  sprintf(buf,"${inits[i].isArray.name}_%d_${inits[i].outputs[opn].src}_${inits[i].outputs[opn].srcPort}_${nns[idMap[wire[0]]].name}_%d",i,i+${wire[2]});\n`;
+								newWsCpp.contents +=        indent + `  patchCord[pci++] = new ${acn}{&buf[0],*${grpStr},${inits[i].isArray.name}[i]->${inits[i].outputs[opn].src},${inits[i].outputs[opn].srcPort},${nns[idMap[wire[0]]].name},(uint8_t)(i+${wire[2]})};\n`;
+							}
 						}
 						newWsCpp.contents += indent + '}\n';
 					}
@@ -855,7 +863,9 @@ RED.arduino.export = (function () {
                     newWsCpp.contents += "; // pointer array\n";
                 }
                 newWsCpp.contents += "\n";
-                newWsCpp.contents += cppPcs;
+				
+				// non-array connections
+                newWsCpp.contents += cppPcs.replace(/",/g, `", *${grpStr},`); // use RegExp to get all instances replaced
 				
 				// disable this for now, it's not working too well!
                 if (false && ac.arrayLength != 0) {
@@ -867,7 +877,12 @@ RED.arduino.export = (function () {
 				// end of constructor
                 newWsCpp.contents += incrementTextLines(classConstructorCode, majorIncrement);
                 newWsCpp.contents += getNrOfSpaces(minorIncrement) + "}\n";
-
+				
+				// constructor at root
+				newWsCpp.contents += "\n" + getNrOfSpaces(minorIncrement) + "// constructor in root:"; 
+				newWsCpp.contents += "\n" + getNrOfSpaces(minorIncrement) + ws.label; 
+				newWsCpp.contents +=  `(const char* _name) : ${ws.label}(_name,NULL) {}\n`;
+	
                 
                 // generate destructor code if enabled
                 if (ws.generateCppDestructor == true) {
@@ -1252,6 +1267,28 @@ RED.arduino.export = (function () {
 			 result[nodeArray[i].id] = i;
 		 
 		 return result;
+	 }
+	 
+	 function getMaxConnName(init,bus)
+	 {
+		 var name = init.isArray.name;
+		 var width = init.isArray.arrayLength;
+		 var maxLen = 0;
+		 var maxInStart = 0;
+		 
+		 for (i=0;i<bus.outputs.length;i++)
+			 for (j=0;j<bus.outputs[i].length;j++)
+				 if (maxInStart < bus.outputs[i][j][2])
+					 maxInStart = bus.outputs[i][j][2];
+		 
+		 for (i=0;i<init.outputs.length;i++)
+		 {
+			var cName = `${name}_${width}_${init.outputs[i].src}_${init.outputs[i].srcPort}_${init.outputs[i].dst}_${init.outputs[i].dstPort+maxInStart}`;
+			if (cName.length > maxLen)
+				maxLen = cName.length;
+		 }
+		 
+		 return maxLen+1; // allow for zero terminator
 	 }
 	 
     /*$("#node-input-export2").val("second text").focus(function() { // this can be used for additional setup loop code in future
