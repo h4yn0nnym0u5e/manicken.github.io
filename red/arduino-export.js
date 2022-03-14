@@ -839,6 +839,7 @@ RED.arduino.export = (function () {
 					if (inits[i].isArray)
 					{
 						var maxConnName = getMaxConnName(inits[i],busses[inits[i].id]);
+						maxConnName = inits[i].isArray.name.length + 5; // don't need to account for connection names now we have auto-naming
 						newWsCpp.contents += indent + `for (uint8_t i=0;i<${inits[i].isArray.arrayLength};i++)\n`;
 						newWsCpp.contents += indent + '{\n';
 						newWsCpp.contents += indent + `  char buf[${maxConnName}];\n\n`;
@@ -850,8 +851,8 @@ RED.arduino.export = (function () {
 							for (wire of output)
 							{
 							//for (src of inits[i].src)
-								newWsCpp.contents += "\n" + indent + `  sprintf(buf,"${inits[i].isArray.name}_%d_${inits[i].outputs[opn].src}_${inits[i].outputs[opn].srcPort}_${nns[idMap[wire[0]]].name}_%d",i,i+${wire[2]});\n`;
-								newWsCpp.contents +=        indent + `  patchCord[pci++] = new ${acn}{&buf[0],*${grpStr},${inits[i].isArray.name}[i]->${inits[i].outputs[opn].src},${inits[i].outputs[opn].srcPort},${nns[idMap[wire[0]]].name},(uint8_t)(i+${wire[2]})};\n`;
+							//	newWsCpp.contents += "\n" + indent + `  sprintf(buf,"${inits[i].isArray.name}_%d_${inits[i].outputs[opn].src}_${inits[i].outputs[opn].srcPort}_${nns[idMap[wire[0]]].name}_%d",i,i+${wire[2]});\n`;
+								newWsCpp.contents +=        indent + `  patchCord[pci++] = new ${acn}{&buf[0],*${grpStr},${inits[i].isArray.name}[i]->${inits[i].outputs[opn].src},${inits[i].outputs[opn].srcPort},${nns[idMap[wire[0]]].name},(uint8_t)(i+${wire[2]}),OSCAudioConnection::AutoName::Underscores};\n`;
 							}
 						}
 						newWsCpp.contents += indent + '}\n';
