@@ -44,7 +44,7 @@ class WsExport
     /** contain all AudioConnection code that belongs to the array code 
      * @type {String[]}
      */
-    arrayAudioConnections = []; // TODO fix so that different size arrays are allowed
+    arrayAudioConnections = {}; // TODO fix so that different size arrays are allowed
 
     totalAudioConnectionCount = 0;
     acArrayLength = 0; // should be replaced by above arrayNodes = {}; that allows different size arrays
@@ -100,7 +100,7 @@ class WsExport
         // seperate following into different functions for easier code
 
         if (this.classComments.length > 0) {
-            newWsCpp.body += "\n/**\n" + this.classComments + " */"; // newline not needed because it allready in beginning of class definer (check down)
+            newWsCpp.body += "\n/**\n" + this.classComments + " */"; // newline not needed because it's already in beginning of class definer (check down)
         }
         if (this.isMain == false) {
             newWsCpp.body += "\nclass " + this.className + " " + ws.extraClassDeclarations +"\n{\npublic:\n";
@@ -115,13 +115,29 @@ class WsExport
         
         var mi_indent = TEXT.getNrOfSpaces(minorIncrement);
         var ma_indent = TEXT.getNrOfSpaces(majorIncrement);
+		
+		function setIndent(s)
+		{
+			var sa = s.split(" ",2);
+			var pad = TEXT.getNrOfSpaces(32 - sa[0].length);
+			return mi_indent + sa[0] + pad + sa[1] + "\n";
+		}
+		
 
-        
+        for (var i=0;i < this.audioObjects.length;i++)
+		{
+            newWsCpp.body += setIndent(RED.arduino.export2.getObjDecl(this.audioObjects[i]));
+		}
 
         if (this.totalAudioConnectionCount != 0) {
+			var s = RED.arduino.export2.getAudioConnectionTypeName() + " ";
+			/*
             newWsCpp.body += mi_indent + RED.arduino.export2.getAudioConnectionTypeName() + " ";
             newWsCpp.body += TEXT.getNrOfSpaces(32 - RED.arduino.export2.getAudioConnectionTypeName().length);
             newWsCpp.body += "*patchCord[" + this.totalAudioConnectionCount + "]; // total patchCordCount:" + this.totalAudioConnectionCount + " including array typed ones.\n";
+			*/
+            s += "*patchCord[" + this.totalAudioConnectionCount + "]; // total patchCordCount:" + this.totalAudioConnectionCount + " including array typed ones.";
+			newWsCpp.body += setIndent(s);
         }
         
         // this is only used by the obsolete PointerArray object
@@ -162,10 +178,13 @@ class WsExport
         }*/
         newWsCpp.body += "\n";
         newWsCpp.body += this.nonArrayAudioConnections.join('\n');
-        if (this.acArrayLength != 0) { // TODO fix to allow different size arrays
-            newWsCpp.body += ma_indent + "for (int i = 0; i < " + this.acArrayLength + "; i++) {\n";
-            newWsCpp.body += this.arrayAudioConnections.join('\n');
-            newWsCpp.body += ma_indent + "}\n";
+        if (this.acArrayLength != 0 /* && this.arrayAudioConnections.keys(values).length > 0 */) { // TODO fix to allow different size arrays
+			for (var len in this.arrayAudioConnections)
+			{
+				newWsCpp.body += ma_indent + "for (int i = 0; i < " + len + "; i++) {\n";
+				newWsCpp.body += this.arrayAudioConnections[len].join('\n');
+				newWsCpp.body += ma_indent + "}\n";
+			}
         }else {
             newWsCpp.body += this.arrayAudioConnections.join('\n');
         }
@@ -178,7 +197,6 @@ class WsExport
             newWsCpp.body += "\n" + mi_indent + "~" + this.className + "() { // destructor (this is called when the class-object is deleted)\n";
             if (this.totalAudioConnectionCount != 0) {
                 newWsCpp.body += ma_indent + "for (int i = 0; i < " + this.totalAudioConnectionCount + "; i++) {\n";
-                newWsCpp.body += ma_indent + mi_indent + "patchCord[i]->disconnect();\n"
                 newWsCpp.body += ma_indent + mi_indent + "delete patchCord[i];\n"
                 newWsCpp.body += ma_indent + "}\n";
             }
@@ -534,7 +552,7 @@ RED.arduino.export2 = (function () {
             return;
         }
 
-        if (coex.mixervariants != undefined && coex.mixervariants.length > 0) {
+        if (!RED.arduino.settings.UseVariableMixers && coex.mixervariants != undefined && coex.mixervariants.length > 0) {
             coex.globalCppFiles.push(...Mixers.GetFiles(coex.mixervariants));
         }
         console.error("@export as class RED.arduino.serverIsActive=" + RED.arduino.serverIsActive());
@@ -614,6 +632,9 @@ RED.arduino.export2 = (function () {
                 console.warn("!!!!WARNING!!!! (unhandled nonObject)\n" + n.type); // in case we forgot something
                 continue; // skip
             }
+			
+			if (n._def.isClass != undefined) // (h4yn0nnym0u5e) keep track of class dependencies so we can export in valid order
+					wse.depends.push(n.type);                
 
             // Audio Control/class node without any IO
             if ((n.outputs <= 0) && (n.inputs <= 0) && (n._def.inputs <= 0) && (n._def.outputs <= 0)) { 
@@ -622,9 +643,6 @@ RED.arduino.export2 = (function () {
                 var comment = (n.comment!=undefined && n.comment.trim().length != 0)?n.comment:"";
                 wse.audioControlObjects.push({name, typeName, comment});
                 
-                if (n._def.isClass != undefined) // (h4yn0nnym0u5e) keep track of class dependencies so we can export in valid order
-						wse.depends.push(n.type);
-                
                 continue; // as they don't have any wires connected just skip to next node
             }
             else // Audio Processing Node and Class node that have IO
@@ -632,7 +650,10 @@ RED.arduino.export2 = (function () {
                 var name = getName(n);
                 var typeName = getTypeName(n);
                 var comment = (n.comment!=undefined && n.comment.trim().length != 0)?n.comment:"";
-                wse.audioObjects.push({name, typeName, comment});
+				var audioObject = {name, typeName, comment};
+				if (n.isArray)
+					audioObject['arrayLength'] = n.isArray.arrayLength;
+                wse.audioObjects.push(audioObject);
             }
             // add audio object wires/connections
             var src = n;//RED.nodes.node(n.id, n.z);
@@ -679,7 +700,7 @@ RED.arduino.export2 = (function () {
         else if (n.type == "PointerArray") {// this is special thingy that was before real-node, now it's obsolete, it only generates more code
             wse.arrayNodes.push({ type: n.objectType, name: n.name, cppCode: n.arrayItems, objectCount: n.arrayItems.split(",").length });
         }
-        else if (n._def.isClass != undefined) {//RED.nodes.isClass(n.type)) {
+        else if (n._def.isClass != undefined && "tab" != n._def.isClass.type) {//RED.nodes.isClass(n.type)) {
             var includeName = '#include "' + n.type + '.h"';
             if (!wse.workspaceIncludes.includes(includeName)) wse.workspaceIncludes.push(includeName);
         }
@@ -755,7 +776,7 @@ RED.arduino.export2 = (function () {
         ac.checkIfSrcIsArray(); // we ignore the return value, there is no really use for it
         if (src._def.isClass != undefined) { // if source is class
             //console.log("root src is class:" + ac.srcName);
-            RED.nodes.classOutputPortToCpp(nns, tabNodes.outputs, ac, n);
+            RED.nodes.classOutputPortToCpp(nns, tabNodes.outputs, ac, src);//n);
         }
 
         ac.checkIfDstIsArray(); // we ignore the return value, there is no really use for it
@@ -773,11 +794,36 @@ RED.arduino.export2 = (function () {
             ac.appendToCppCode(); // this don't return anything, the result is in ac.cppCode
         }
         if (ac.ifAnyIsArray())
-            wse.arrayAudioConnections.push(...ac.cppCode.split('\n')); // TODO fix so that different size arrays are allowed
+		{
+			var lines = ac.cppCode.split('\n');
+			if (ac.arrayLength in wse.arrayAudioConnections) // already creating something this wide...
+				wse.arrayAudioConnections[ac.arrayLength].push(...lines);
+			else
+				wse.arrayAudioConnections[ac.arrayLength] = lines; // TODO fix so that different size arrays are allowed
+		}
         else
             wse.nonArrayAudioConnections.push(...ac.cppCode.split('\n'));  // TODO fix so that cppCode can be returned as array, have split as workaround for now
     }
 
+	/**
+	 * Create declaration of an audio object, subject to the current export rules
+	 */
+	 function getObjDecl(audioObject)
+	 {
+		var decl = audioObject.typeName.typ
+        if (RED.arduino.settings.UseAudioMixerTemplate == true)
+			decl += "<" + audioObject.typeName.cons +">";
+		decl += " "+audioObject.name;
+		if (audioObject.arrayLength)
+			decl += "[" + audioObject.arrayLength + "]"
+		if (audioObject.typeName.cons && audioObject.typeName.cons != '')
+			decl += "{" + audioObject.typeName.cons +"}";
+		
+		decl += ";\n";
+		return decl;
+	 }
+	 
+	 
     /**
      * This is only for the moment to get special type AudioMixer<n>, AudioMixerNNN or AudioStreamObject
      * @param {Node} node node(internal)
@@ -785,26 +831,37 @@ RED.arduino.export2 = (function () {
      function getTypeName(node)
      {
         if (node.type == "AudioStreamObject") // special case
-            var cpp = node.subType?node.subType:"// warning AudioStreamObject subType not set";
+            var typ = node.subType?node.subType:"// warning AudioStreamObject subType not set";
         else
-            var cpp = node.type;
-
+            var typ = node.type;
+		
+		var cons = '';
+		
         if (node._def.dynInputs != undefined && RED.arduino.settings.ExportMode < 3)
         {
             var dynInputSize = RED.export.links.getDynInputDynSize(node).toString();
 
-            if (RED.arduino.settings.UseAudioMixerTemplate == true)
-                dynInputSize = '<' + dynInputSize + '>'; // include the template def.
+            //if (RED.arduino.settings.UseAudioMixerTemplate == true)
+            //    dynInputSize = '<' + dynInputSize + '>'; // include the template def.
 
-            cpp += dynInputSize;
+            cons = "," + dynInputSize;
         }
+		
+		if (node._def.makeConstructor != undefined && node.useMakeConstructor)// && RED.arduino.settings.ExportMode < 3)
+        {
+			var clist = node._def.makeConstructor.valueNames.split(/[, ]+/);
+			for (var i=0;i<clist.length;i++)
+				cons += "," + node[clist[i]];
+		}
+        
 
         if (RED.arduino.settings.ExportMode == 3)
-            cpp = cpp.replace("Audio", "OSCAudio");
+            typ = typ.replace("Audio", "OSCAudio");
 
-        cpp += " "; // add at least one space
-        for (var j = cpp.length; j < 32; j++) cpp += " ";
-        return cpp;
+		// Don't add space, that's the formatter's job!
+        //cpp += " "; // add at least one space
+        //for (var j = cpp.length; j < 32; j++) cpp += " ";
+        return {typ,"cons": cons.slice(1)};
     }
 
     function getName(node) {
@@ -898,6 +955,13 @@ RED.arduino.export2 = (function () {
         // credits to h4yn0nnym0u5e for the dependency order sorting
         var exportComplete = false;
         var exported = [];
+		
+		// make a list of available classes
+		var classList = [];
+        for (var i = 0; i < ce.wsCppFiles.length; i++)
+			if (ce.wsCppFiles[i].className)
+                    classList.push(ce.wsCppFiles[i].className);
+				
         while (!exportComplete)
         {
             exportComplete = true;
@@ -907,8 +971,11 @@ RED.arduino.export2 = (function () {
                 if (!ce.wsCppFiles[i].isExported) {
                     // check that anything we depend on has already been output
                     var skip = false;
-                    for (depend of ce.wsCppFiles[i].depends) {
-                        if (!exported.includes(depend))
+                    for (var depend of ce.wsCppFiles[i].depends) 
+					{
+						// skip until prior dependencies have been output, as long
+						// as they're actually available (might not be in simple export)
+                        if (!exported.includes(depend) && classList.includes(depend))
                         {
                             exportComplete = false;
                             skip = true;
@@ -954,7 +1021,8 @@ RED.arduino.export2 = (function () {
         Export,
         getCppFooter,
         getCppHeader,
-        getAudioConnectionTypeName
+        getAudioConnectionTypeName,
+		getObjDecl
     };
 })();
 
