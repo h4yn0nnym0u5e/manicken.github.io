@@ -44,7 +44,7 @@ class WsExport
     /** contain all AudioConnection code that belongs to the array code 
      * @type {String[]}
      */
-    arrayAudioConnections = {}; // TODO fix so that different size arrays are allowed
+    arrayAudioConnections = {};
 
     totalAudioConnectionCount = 0;
     acArrayLength = 0; // should be replaced by above arrayNodes = {}; that allows different size arrays
@@ -178,14 +178,15 @@ class WsExport
         }*/
         newWsCpp.body += "\n";
         newWsCpp.body += this.nonArrayAudioConnections.join('\n');
-        if (this.acArrayLength != 0 /* && this.arrayAudioConnections.keys(values).length > 0 */) { // TODO fix to allow different size arrays
+        if (this.acArrayLength != 0 /* && this.arrayAudioConnections.keys(values).length > 0 */) 
+		{ 
 			for (var len in this.arrayAudioConnections)
 			{
 				newWsCpp.body += ma_indent + "for (int i = 0; i < " + len + "; i++) {\n";
 				newWsCpp.body += this.arrayAudioConnections[len].join('\n');
 				newWsCpp.body += ma_indent + "}\n";
 			}
-        }else {
+        } else {
             newWsCpp.body += this.arrayAudioConnections.join('\n');
         }
         newWsCpp.body += TEXT.incrementLines(this.constructorCode.join('\n'), majorIncrement);
@@ -797,9 +798,9 @@ RED.arduino.export2 = (function () {
 		{
 			var lines = ac.cppCode.split('\n');
 			if (ac.arrayLength in wse.arrayAudioConnections) // already creating something this wide...
-				wse.arrayAudioConnections[ac.arrayLength].push(...lines);
+				wse.arrayAudioConnections[ac.arrayLength].push(...lines); // ... add to it
 			else
-				wse.arrayAudioConnections[ac.arrayLength] = lines; // TODO fix so that different size arrays are allowed
+				wse.arrayAudioConnections[ac.arrayLength] = lines; // new width, make a new entry
 		}
         else
             wse.nonArrayAudioConnections.push(...ac.cppCode.split('\n'));  // TODO fix so that cppCode can be returned as array, have split as workaround for now
